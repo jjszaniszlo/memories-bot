@@ -49,6 +49,16 @@ resource "aws_dynamodb_table" "memories" {
     write_capacity = 5
   }
 
+  # Neighbouring posts in the same channel, for reposting a burst together.
+  global_secondary_index {
+    name            = "by-channel-time"
+    hash_key        = "channel_id"
+    range_key       = "posted_at"
+    projection_type = "ALL"
+    read_capacity   = 5
+    write_capacity  = 5
+  }
+
   point_in_time_recovery {
     enabled = false
   }
