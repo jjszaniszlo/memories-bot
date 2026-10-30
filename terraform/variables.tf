@@ -74,3 +74,15 @@ variable "log_retention_days" {
   type    = number
   default = 14
 }
+
+variable "billing_alert_email" {
+  description = "If set, creates a budget that emails this address the moment any gross usage would cost money (i.e. something left the always-free tier). Leave empty to skip."
+  type        = string
+  default     = ""
+}
+
+variable "lambda_reserved_concurrency" {
+  description = "Hard cap on concurrent invocations. Bounds the damage if the public interactions URL gets spammed."
+  type        = number
+  default     = 5
+}

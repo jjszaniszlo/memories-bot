@@ -138,6 +138,8 @@ resource "aws_lambda_function" "bot" {
   memory_size   = 512
   timeout       = 900
 
+  reserved_concurrent_executions = var.lambda_reserved_concurrency
+
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
 
@@ -238,5 +240,41 @@ resource "aws_scheduler_schedule" "repost" {
     arn      = aws_lambda_function.bot.arn
     role_arn = aws_iam_role.scheduler.arn
     input    = jsonencode({ job = "repost" })
+  }
+}
+
+# --- Spend guardrail -----------------------------------------------------------
+# Tracks gross usage with credits excluded, so it fires if anything in the
+# account would have cost money even while credits are covering it.
+
+resource "aws_budgets_budget" "zero_spend" {
+  count = var.billing_alert_email == "" ? 0 : 1
+
+  name         = "${var.name}-zero-spend"
+  budget_type  = "COST"
+  limit_amount = "1"
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  cost_types {
+    include_credit             = false
+    include_refund             = false
+    include_discount           = true
+    include_subscription       = true
+    include_tax                = true
+    include_support            = true
+    include_upfront            = true
+    include_recurring          = true
+    include_other_subscription = true
+    use_amortized              = false
+    use_blended                = false
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 1
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.billing_alert_email]
   }
 }
