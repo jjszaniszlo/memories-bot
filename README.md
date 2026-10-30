@@ -16,9 +16,8 @@ There is no gateway connection. New images are picked up on the next poll, not i
 2. Note the **Application ID** and **Public Key** (General Information) and the **Bot Token** (Bot tab).
 3. Invite the bot with scopes `bot` + `applications.commands` and permissions
    **View Channels, Read Message History, Send Messages, Embed Links, Attach Files, Mention Everyone** (last one lets it ping roles).
-4. Turn on Developer Mode in Discord and copy the IDs of the server, the channels to scan, and the memories channel.
-
-No privileged intents are needed because the bot reads messages through the REST API.
+4. On the **Bot** tab, under Privileged Gateway Intents, enable **Message Content Intent**. Without it Discord strips content, attachments and embeds from every message the bot fetches, including over the REST API, and the bot will find no images.
+5. Turn on Developer Mode in Discord and copy the IDs of the server, the channels to scan, and the memories channel.
 
 ## 2. Deploy
 
