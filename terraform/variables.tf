@@ -82,7 +82,7 @@ variable "billing_alert_email" {
 }
 
 variable "lambda_reserved_concurrency" {
-  description = "Hard cap on concurrent invocations. Bounds the damage if the public interactions URL gets spammed."
+  description = "Per-function concurrency cap, or -1 for none. New accounts sit at the account-wide floor of 10, which already bounds spam against the public URL, and AWS refuses a per-function cap there."
   type        = number
-  default     = 5
+  default     = -1
 }
