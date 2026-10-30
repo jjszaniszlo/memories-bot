@@ -133,36 +133,44 @@ export async function countMemories(): Promise<number> {
   return total;
 }
 
-const ELIGIBLE_FILTER =
-  "deleted = :zero AND posted_at < :maxPostedAt AND (attribute_not_exists(last_reposted_at) OR last_reposted_at < :cooldownBefore)";
+export interface PickFilters {
+  authorId?: string;
+  year?: number;
+  /** Only memories posted at or after this time (ms). */
+  notBeforeMs?: number;
+}
 
-function eligibilityValues() {
+/** Eligibility = live, old enough, outside cooldown, plus any user filters. */
+function eligibility(filters: PickFilters): { expr: string; values: Record<string, unknown> } {
   const now = Date.now();
-  return {
+  const parts = [
+    "deleted = :zero",
+    "posted_at < :maxPostedAt",
+    "(attribute_not_exists(last_reposted_at) OR last_reposted_at < :cooldownBefore)",
+  ];
+  const values: Record<string, unknown> = {
     ":zero": 0,
     ":maxPostedAt": now - config.minAgeDays * 86_400_000,
     ":cooldownBefore": now - config.repostCooldownDays * 86_400_000,
   };
+  if (filters.authorId) {
+    parts.push("author_id = :author");
+    values[":author"] = filters.authorId;
+  }
+  if (filters.year) {
+    parts.push("begins_with(posted_date, :year)");
+    values[":year"] = `${filters.year}-`;
+  }
+  if (filters.notBeforeMs) {
+    parts.push("posted_at >= :notBefore");
+    values[":notBefore"] = filters.notBeforeMs;
+  }
+  return { expr: parts.join(" AND "), values };
 }
 
-/** Least-reposted first, random among ties. */
-function choose(items: MemoryItem[]): MemoryItem | undefined {
-  if (items.length === 0) return undefined;
-  const min = Math.min(...items.map((m) => m.repost_count ?? 0));
-  const pool = items.filter((m) => (m.repost_count ?? 0) === min);
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-
-/**
- * Pick a memory to repost. Preference order:
- *  1. Same month/day as today from an earlier year ("on this day")
- *  2. Any eligible memory
- * The fallback scans the whole table, which is fine for a hobby-sized table.
- */
-async function eligibleOnMonthDay(
-  monthDay: string,
-  values: Record<string, unknown>,
-): Promise<MemoryItem[]> {
+/** Eligible memories posted on a given MM-DD in any year. Reads only that day's items. */
+export async function eligibleOnMonthDay(monthDay: string, filters: PickFilters): Promise<MemoryItem[]> {
+  const { expr, values } = eligibility(filters);
   const out: MemoryItem[] = [];
   let ExclusiveStartKey: Record<string, unknown> | undefined;
   do {
@@ -171,7 +179,7 @@ async function eligibleOnMonthDay(
         TableName: table(),
         IndexName: MONTH_DAY_INDEX,
         KeyConditionExpression: "month_day = :md",
-        FilterExpression: ELIGIBLE_FILTER,
+        FilterExpression: expr,
         ExpressionAttributeValues: { ...values, ":md": monthDay },
         ExclusiveStartKey,
       }),
@@ -182,35 +190,16 @@ async function eligibleOnMonthDay(
   return out;
 }
 
-/** MM-DD for today's month-day shifted by `offset` days (year-agnostic). */
-function shiftMonthDay(monthDay: string, offset: number): string {
-  const [m, d] = monthDay.split("-").map(Number);
-  const date = new Date(Date.UTC(2024, m! - 1, d! + offset)); // leap year so 02-29 exists
-  return `${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-}
-
-/** How many days either side of today to try before falling back to a full scan. */
-const NEARBY_DAYS = 14;
-
-export async function pickMemory(todayMonthDay: string): Promise<MemoryItem | undefined> {
-  const values = eligibilityValues();
-
-  // Today, then 1 day either side, then 2, ... Each query reads only that day's items.
-  for (let k = 0; k <= NEARBY_DAYS; k++) {
-    const offsets = k === 0 ? [0] : [-k, k];
-    for (const offset of offsets) {
-      const pick = choose(await eligibleOnMonthDay(shiftMonthDay(todayMonthDay, offset), values));
-      if (pick) return pick;
-    }
-  }
-
+/** Every eligible memory. Reads the whole table, so it is the last resort. */
+export async function scanEligible(filters: PickFilters): Promise<MemoryItem[]> {
+  const { expr, values } = eligibility(filters);
   const all: MemoryItem[] = [];
   let ExclusiveStartKey: Record<string, unknown> | undefined;
   do {
     const r: ScanCommandOutput = await doc.send(
       new ScanCommand({
         TableName: table(),
-        FilterExpression: `kind = :kind AND ${ELIGIBLE_FILTER}`,
+        FilterExpression: `kind = :kind AND ${expr}`,
         ExpressionAttributeValues: { ...values, ":kind": "memory" },
         ExclusiveStartKey,
       }),
@@ -218,7 +207,7 @@ export async function pickMemory(todayMonthDay: string): Promise<MemoryItem | un
     all.push(...((r.Items ?? []) as MemoryItem[]));
     ExclusiveStartKey = r.LastEvaluatedKey;
   } while (ExclusiveStartKey);
-  return choose(all);
+  return all;
 }
 
 /** Live memories by the same author in the same channel within a time window, oldest first. */

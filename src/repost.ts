@@ -6,9 +6,9 @@ import {
   getMemory,
   markDeleted,
   markReposted,
-  pickMemory,
   type MemoryItem,
 } from "./db.js";
+import { pickMemory, type PickRequest } from "./pick.js";
 import { downloadFile, fetchChannelName, fetchMessage, sendMessage } from "./discord.js";
 import { extractImageUrls, toLocalDate } from "./ingest.js";
 
@@ -93,6 +93,8 @@ interface GroupImage {
 export interface RepostOptions {
   /** Called as soon as the post is up, before the (possibly slow) bookkeeping writes. */
   onPosted?: () => Promise<void>;
+  /** Extra footer text, e.g. the pick mode and filters that produced this memory. */
+  label?: string;
 }
 
 /** Repost one memory together with its burst. Returns false if nothing could be posted. */
@@ -138,9 +140,13 @@ export async function repostMemory(pick: MemoryItem, opts: RepostOptions = {}): 
     description: texts.join("\n\n") || "*(no text)*",
     timestamp: new Date(first.posted_at).toISOString(),
     footer: {
-      text:
-        `Posted by ${first.author_name} in #${channelName}` +
-        (live.length > 1 ? ` · ${live.length} messages` : ""),
+      text: [
+        `Posted by ${first.author_name} in #${channelName}`,
+        live.length > 1 ? `${live.length} messages` : undefined,
+        opts.label,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     },
   };
 
@@ -192,10 +198,12 @@ export async function repostMemory(pick: MemoryItem, opts: RepostOptions = {}): 
 }
 
 /** Pick an eligible memory and repost it with its burst, retrying if the pick is gone. */
-export async function repostRandomMemory(opts: RepostOptions = {}): Promise<boolean> {
-  const monthDay = toLocalDate(Date.now()).slice(5);
+export async function repostRandomMemory(
+  req: PickRequest = { mode: "on-this-day" },
+  opts: RepostOptions = {},
+): Promise<boolean> {
   for (let attempt = 0; attempt < MAX_PICK_ATTEMPTS; attempt++) {
-    const memory = await pickMemory(monthDay);
+    const memory = await pickMemory(req);
     if (!memory) {
       console.log("[repost] no eligible memories");
       return false;

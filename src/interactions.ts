@@ -17,6 +17,7 @@ import { editInteractionReply } from "./discord.js";
 import { POLL_LOCK, pollAll } from "./poll.js";
 import { toLocalDate } from "./ingest.js";
 import { repostById, repostRandomMemory } from "./repost.js";
+import { describePick, PICK_MODES, type PickMode, type PickRequest } from "./pick.js";
 
 /** Payload this function sends to itself for work that outlives the 3s interaction window. */
 export interface CommandJob {
@@ -57,7 +58,7 @@ function reply(content: string): APIInteractionResponse {
   };
 }
 
-function optionValue<T extends string>(
+function optionValue<T extends string | number>(
   interaction: APIChatInputApplicationCommandInteraction,
   name: string,
 ): T | undefined {
@@ -154,17 +155,32 @@ export async function runCommandJob(job: CommandJob, deadline: number): Promise<
       }
       case "memory": {
         const messageId = optionValue<string>(interaction, "message_id");
+        const modeRaw = optionValue<string>(interaction, "mode");
+        const mode: PickMode = PICK_MODES.some((m) => m.value === modeRaw)
+          ? (modeRaw as PickMode)
+          : "on-this-day";
+        const authorId = optionValue<string>(interaction, "from");
+        const year = optionValue<number>(interaction, "year");
+        const req: PickRequest = { mode, authorId, year };
+        const authorName = authorId
+          ? interaction.data.resolved?.users?.[authorId]?.global_name ??
+            interaction.data.resolved?.users?.[authorId]?.username
+          : undefined;
+        const label = describePick(req, authorName);
+
         // Reply the moment the post is up; bookkeeping writes can lag under load.
         const onPosted = () => editInteractionReply(interaction.token, "Posted to the memories channel.");
         const ok = messageId
           ? await repostById(messageId, { onPosted })
-          : await repostRandomMemory({ onPosted });
+          : await repostRandomMemory(req, { onPosted, label });
         if (!ok) {
           await editInteractionReply(
             interaction.token,
             messageId
               ? "That message isn't stored as a memory or is no longer available."
-              : "No eligible memories to post.",
+              : label
+                ? `No eligible memories match (${label}). Try loosening the filters.`
+                : "No eligible memories to post.",
           );
         }
         return;
