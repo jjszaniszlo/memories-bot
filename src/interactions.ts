@@ -151,15 +151,19 @@ export async function runCommandJob(job: CommandJob, deadline: number): Promise<
       }
       case "memory": {
         const messageId = optionValue<string>(interaction, "message_id");
-        const ok = messageId ? await repostById(messageId) : await repostRandomMemory();
-        await editInteractionReply(
-          interaction.token,
-          ok
-            ? "Posted to the memories channel."
-            : messageId
+        // Reply the moment the post is up; bookkeeping writes can lag under load.
+        const onPosted = () => editInteractionReply(interaction.token, "Posted to the memories channel.");
+        const ok = messageId
+          ? await repostById(messageId, { onPosted })
+          : await repostRandomMemory({ onPosted });
+        if (!ok) {
+          await editInteractionReply(
+            interaction.token,
+            messageId
               ? "That message isn't stored as a memory or is no longer available."
               : "No eligible memories to post.",
-        );
+          );
+        }
         return;
       }
     }

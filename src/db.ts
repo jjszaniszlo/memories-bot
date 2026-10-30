@@ -159,10 +159,11 @@ function choose(items: MemoryItem[]): MemoryItem | undefined {
  *  2. Any eligible memory
  * The fallback scans the whole table, which is fine for a hobby-sized table.
  */
-export async function pickMemory(todayMonthDay: string): Promise<MemoryItem | undefined> {
-  const values = eligibilityValues();
-
-  const onThisDay: MemoryItem[] = [];
+async function eligibleOnMonthDay(
+  monthDay: string,
+  values: Record<string, unknown>,
+): Promise<MemoryItem[]> {
+  const out: MemoryItem[] = [];
   let ExclusiveStartKey: Record<string, unknown> | undefined;
   do {
     const r = await doc.send(
@@ -171,17 +172,40 @@ export async function pickMemory(todayMonthDay: string): Promise<MemoryItem | un
         IndexName: MONTH_DAY_INDEX,
         KeyConditionExpression: "month_day = :md",
         FilterExpression: ELIGIBLE_FILTER,
-        ExpressionAttributeValues: { ...values, ":md": todayMonthDay },
+        ExpressionAttributeValues: { ...values, ":md": monthDay },
         ExclusiveStartKey,
       }),
     );
-    onThisDay.push(...((r.Items ?? []) as MemoryItem[]));
+    out.push(...((r.Items ?? []) as MemoryItem[]));
     ExclusiveStartKey = r.LastEvaluatedKey;
   } while (ExclusiveStartKey);
-  const pick = choose(onThisDay);
-  if (pick) return pick;
+  return out;
+}
+
+/** MM-DD for today's month-day shifted by `offset` days (year-agnostic). */
+function shiftMonthDay(monthDay: string, offset: number): string {
+  const [m, d] = monthDay.split("-").map(Number);
+  const date = new Date(Date.UTC(2024, m! - 1, d! + offset)); // leap year so 02-29 exists
+  return `${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+/** How many days either side of today to try before falling back to a full scan. */
+const NEARBY_DAYS = 14;
+
+export async function pickMemory(todayMonthDay: string): Promise<MemoryItem | undefined> {
+  const values = eligibilityValues();
+
+  // Today, then 1 day either side, then 2, ... Each query reads only that day's items.
+  for (let k = 0; k <= NEARBY_DAYS; k++) {
+    const offsets = k === 0 ? [0] : [-k, k];
+    for (const offset of offsets) {
+      const pick = choose(await eligibleOnMonthDay(shiftMonthDay(todayMonthDay, offset), values));
+      if (pick) return pick;
+    }
+  }
 
   const all: MemoryItem[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
   do {
     const r: ScanCommandOutput = await doc.send(
       new ScanCommand({

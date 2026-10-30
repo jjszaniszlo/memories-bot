@@ -90,8 +90,13 @@ interface GroupImage {
   memory: MemoryItem;
 }
 
+export interface RepostOptions {
+  /** Called as soon as the post is up, before the (possibly slow) bookkeeping writes. */
+  onPosted?: () => Promise<void>;
+}
+
 /** Repost one memory together with its burst. Returns false if nothing could be posted. */
-export async function repostMemory(pick: MemoryItem): Promise<boolean> {
+export async function repostMemory(pick: MemoryItem, opts: RepostOptions = {}): Promise<boolean> {
   const group = await buildGroup(pick);
 
   // Re-fetch every member for fresh URLs, dropping any that are gone.
@@ -178,15 +183,16 @@ export async function repostMemory(pick: MemoryItem): Promise<boolean> {
     }
   }
 
-  for (const { memory } of live) await markReposted(memory.id);
   console.log(
     `[repost] reposted group of ${live.length} message(s), ${posted} image(s), from ${first.posted_date}`,
   );
+  await opts.onPosted?.();
+  for (const { memory } of live) await markReposted(memory.id);
   return true;
 }
 
 /** Pick an eligible memory and repost it with its burst, retrying if the pick is gone. */
-export async function repostRandomMemory(): Promise<boolean> {
+export async function repostRandomMemory(opts: RepostOptions = {}): Promise<boolean> {
   const monthDay = toLocalDate(Date.now()).slice(5);
   for (let attempt = 0; attempt < MAX_PICK_ATTEMPTS; attempt++) {
     const memory = await pickMemory(monthDay);
@@ -194,14 +200,14 @@ export async function repostRandomMemory(): Promise<boolean> {
       console.log("[repost] no eligible memories");
       return false;
     }
-    if (await repostMemory(memory)) return true;
+    if (await repostMemory(memory, opts)) return true;
   }
   console.warn("[repost] gave up after several unavailable picks");
   return false;
 }
 
-export async function repostById(messageId: string): Promise<boolean> {
+export async function repostById(messageId: string, opts: RepostOptions = {}): Promise<boolean> {
   const memory = await getMemory(messageId);
   if (!memory) return false;
-  return repostMemory(memory);
+  return repostMemory(memory, opts);
 }
