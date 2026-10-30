@@ -1,0 +1,13 @@
+aws_region = "us-east-2"
+
+discord_token      = "..."
+discord_client_id  = "123456789012345678"
+discord_public_key = "abcdef..."
+guild_id           = "123456789012345678"
+
+scan_channel_ids    = ["123456789012345678", "234567890123456789"]
+memories_channel_id = "345678901234567890"
+
+timezone    = "America/New_York"
+repost_cron = "cron(0 10 * * ? *)" # daily 10:00 in `timezone`
+poll_rate   = "rate(15 minutes)"
