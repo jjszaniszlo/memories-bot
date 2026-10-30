@@ -12,9 +12,10 @@ import {
 } from "discord-api-types/v10";
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
 import { config } from "./config.js";
-import { countMemories } from "./db.js";
+import { countMemoriesInChannel, getCursor, isLocked } from "./db.js";
 import { editInteractionReply } from "./discord.js";
-import { pollAll } from "./poll.js";
+import { POLL_LOCK, pollAll } from "./poll.js";
+import { toLocalDate } from "./ingest.js";
 import { repostById, repostRandomMemory } from "./repost.js";
 
 /** Payload this function sends to itself for work that outlives the 3s interaction window. */
@@ -110,8 +111,6 @@ export async function handleInteractionHttp(
 
   switch (cmd.data.name) {
     case "memories-stats":
-      return json(200, reply(`Stored memories: ${await countMemories()}`));
-
     case "backfill":
     case "memory":
       // Defer, then finish in a second invocation (uploads can exceed 3s).
@@ -131,6 +130,10 @@ export async function runCommandJob(job: CommandJob, deadline: number): Promise<
   const { interaction } = job;
   try {
     switch (interaction.data.name) {
+      case "memories-stats": {
+        await editInteractionReply(interaction.token, await statsReport());
+        return;
+      }
       case "backfill": {
         const channelId = optionValue<string>(interaction, "channel");
         const results = await pollAll(deadline, {
@@ -171,6 +174,31 @@ export async function runCommandJob(job: CommandJob, deadline: number): Promise<
     console.error(`[command] ${interaction.data.name} failed`, err);
     await editInteractionReply(interaction.token, "Something went wrong running that command.").catch(() => {});
   }
+}
+
+/** Discord snowflake -> unix ms. */
+function snowflakeToMs(id: string): number {
+  return Number((BigInt(id) >> 22n) + 1420070400000n);
+}
+
+async function statsReport(): Promise<string> {
+  const lines: string[] = [];
+  let total = 0;
+  for (const channelId of config.scanChannelIds) {
+    const [count, cursor] = await Promise.all([countMemoriesInChannel(channelId), getCursor(channelId)]);
+    total += count;
+    let status: string;
+    if (cursor.backfill_done) status = "backfill complete";
+    else if (cursor.backfill_before) status = `backfill in progress, reached ${toLocalDate(snowflakeToMs(cursor.backfill_before))}`;
+    else status = "backfill not started";
+    lines.push(`<#${channelId}>: ${count} memories · ${status}`);
+  }
+  const running = await isLocked(POLL_LOCK);
+  return [
+    `Stored memories: ${total}`,
+    ...lines,
+    running ? "A poll is running right now." : "No poll running.",
+  ].join("\n");
 }
 
 export { ApplicationCommandOptionType };

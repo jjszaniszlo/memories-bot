@@ -253,6 +253,33 @@ export async function findNeighbors(
   return out.sort((a, b) => a.posted_at - b.posted_at);
 }
 
+export async function countMemoriesInChannel(channelId: string): Promise<number> {
+  let total = 0;
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const r = await doc.send(
+      new QueryCommand({
+        TableName: table(),
+        IndexName: CHANNEL_TIME_INDEX,
+        KeyConditionExpression: "channel_id = :c",
+        FilterExpression: "deleted = :zero",
+        ExpressionAttributeValues: { ":c": channelId, ":zero": 0 },
+        Select: "COUNT",
+        ExclusiveStartKey,
+      }),
+    );
+    total += r.Count ?? 0;
+    ExclusiveStartKey = r.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return total;
+}
+
+export async function isLocked(name: string): Promise<boolean> {
+  const r = await doc.send(new GetCommand({ TableName: table(), Key: { id: `lock#${name}` } }));
+  const expires = (r.Item as { expires_at?: number } | undefined)?.expires_at;
+  return expires !== undefined && expires > Date.now();
+}
+
 export async function getCursor(channelId: string): Promise<CursorItem> {
   const r = await doc.send(
     new GetCommand({ TableName: table(), Key: { id: `cursor#${channelId}` } }),
