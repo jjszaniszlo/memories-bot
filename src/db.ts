@@ -11,9 +11,12 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { config } from "./config.js";
 
-const doc = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
-  marshallOptions: { removeUndefinedValues: true },
-});
+// Adaptive retry makes the client slow itself down when the table's provisioned
+// capacity is exceeded, so a backfill self-paces instead of failing.
+const doc = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ retryMode: "adaptive", maxAttempts: 20 }),
+  { marshallOptions: { removeUndefinedValues: true } },
+);
 
 export const MONTH_DAY_INDEX = "by-month-day";
 export const CHANNEL_TIME_INDEX = "by-channel-time";
