@@ -1,5 +1,6 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
+  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -208,4 +209,30 @@ export async function getCursor(channelId: string): Promise<CursorItem> {
 
 export async function putCursor(cursor: CursorItem): Promise<void> {
   await doc.send(new PutCommand({ TableName: table(), Item: cursor }));
+}
+
+/**
+ * Simple mutex so a scheduled poll and a manual backfill never overlap.
+ * The lock expires on its own so a crashed run can't wedge the bot.
+ */
+export async function acquireLock(name: string, ttlMs: number): Promise<boolean> {
+  const now = Date.now();
+  try {
+    await doc.send(
+      new PutCommand({
+        TableName: table(),
+        Item: { id: `lock#${name}`, kind: "lock", expires_at: now + ttlMs },
+        ConditionExpression: "attribute_not_exists(id) OR expires_at < :now",
+        ExpressionAttributeValues: { ":now": now },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if ((err as { name?: string }).name === "ConditionalCheckFailedException") return false;
+    throw err;
+  }
+}
+
+export async function releaseLock(name: string): Promise<void> {
+  await doc.send(new DeleteCommand({ TableName: table(), Key: { id: `lock#${name}` } }));
 }

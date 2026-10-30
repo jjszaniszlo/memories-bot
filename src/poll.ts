@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { getCursor, putCursor } from "./db.js";
+import { acquireLock, getCursor, putCursor, releaseLock } from "./db.js";
 import { fetchMessages } from "./discord.js";
 import { ingestMessage } from "./ingest.js";
 
@@ -78,20 +78,31 @@ export async function pollChannel(
   return result;
 }
 
+export const POLL_LOCK = "poll";
+
+/** Returns null if another poll is already running. */
 export async function pollAll(
   deadline: number,
   opts: { channelIds?: string[]; reset?: boolean } = {},
-): Promise<PollResult[]> {
-  const results: PollResult[] = [];
-  for (const channelId of opts.channelIds ?? config.scanChannelIds) {
-    try {
-      const r = await pollChannel(channelId, deadline, { reset: opts.reset });
-      console.log(`[poll] ${channelId} scanned=${r.scanned} stored=${r.stored} backfillDone=${r.backfillDone}`);
-      results.push(r);
-    } catch (err) {
-      console.error(`[poll] ${channelId} failed`, err);
-      results.push({ channelId, scanned: 0, stored: 0, backfillDone: false });
-    }
+): Promise<PollResult[] | null> {
+  if (!(await acquireLock(POLL_LOCK, deadline - Date.now()))) {
+    console.log("[poll] another poll is still running, skipping");
+    return null;
   }
-  return results;
+  try {
+    const results: PollResult[] = [];
+    for (const channelId of opts.channelIds ?? config.scanChannelIds) {
+      try {
+        const r = await pollChannel(channelId, deadline, { reset: opts.reset });
+        console.log(`[poll] ${channelId} scanned=${r.scanned} stored=${r.stored} backfillDone=${r.backfillDone}`);
+        results.push(r);
+      } catch (err) {
+        console.error(`[poll] ${channelId} failed`, err);
+        results.push({ channelId, scanned: 0, stored: 0, backfillDone: false });
+      }
+    }
+    return results;
+  } finally {
+    await releaseLock(POLL_LOCK);
+  }
 }

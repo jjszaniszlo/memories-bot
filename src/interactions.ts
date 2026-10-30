@@ -137,6 +137,10 @@ export async function runCommandJob(job: CommandJob, deadline: number): Promise<
           channelIds: channelId ? [channelId] : undefined,
           reset: true,
         });
+        if (!results) {
+          await editInteractionReply(interaction.token, "A poll is already running. Try again in a few minutes.");
+          return;
+        }
         const lines = results.map(
           (r) =>
             `<#${r.channelId}>: scanned ${r.scanned}, stored ${r.stored}` +
