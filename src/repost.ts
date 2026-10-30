@@ -2,6 +2,7 @@ import { DiscordAPIError, type RawFile } from "@discordjs/rest";
 import { RESTJSONErrorCodes, type APIEmbed, type APIMessage } from "discord-api-types/v10";
 import { config } from "./config.js";
 import {
+  findNeighbors,
   getMemory,
   markDeleted,
   markReposted,
@@ -11,7 +12,14 @@ import {
 import { downloadFile, fetchChannelName, fetchMessage, sendMessage } from "./discord.js";
 import { extractImageUrls, toLocalDate } from "./ingest.js";
 
-const MAX_ATTACHMENTS = 10;
+/** Discord's per-message attachment cap. */
+const FILES_PER_MESSAGE = 10;
+/** Consecutive posts by the same author closer than this are one burst. */
+const GROUP_GAP_MS = 15 * 60_000;
+/** How far around the pick to look for burst members. */
+const GROUP_SEARCH_MS = 3 * 60 * 60_000;
+/** Safety cap so a 26-message burst doesn't flood the channel. */
+const MAX_GROUP_IMAGES = 40;
 const MAX_PICK_ATTEMPTS = 5;
 
 /** Re-fetch the original so attachment URLs are fresh (CDN links expire). */
@@ -35,14 +43,15 @@ function jumpLink(m: MemoryItem): string {
   return `https://discord.com/channels/${m.guild_id}/${m.channel_id}/${m.id}`;
 }
 
-function titleFor(postedAt: number): string {
+function titleFor(postedAt: number, imageCount: number): string {
   const posted = toLocalDate(postedAt);
   const today = toLocalDate(Date.now());
   const years = Number(today.slice(0, 4)) - Number(posted.slice(0, 4));
-  if (posted.slice(5) === today.slice(5) && years > 0) {
-    return `On this day, ${years} year${years === 1 ? "" : "s"} ago`;
-  }
-  return "A memory from the past";
+  const base =
+    posted.slice(5) === today.slice(5) && years > 0
+      ? `On this day, ${years} year${years === 1 ? "" : "s"} ago`
+      : "A memory from the past";
+  return imageCount > 1 ? `${base} (${imageCount} pictures)` : base;
 }
 
 function fileName(url: string, index: number): string {
@@ -55,56 +64,128 @@ function fileName(url: string, index: number): string {
   return `image-${index + 1}.png`;
 }
 
-/** Repost one memory. Returns false if it was skipped (deleted, no images). */
-export async function repostMemory(memory: MemoryItem): Promise<boolean> {
-  const original = await fetchOriginal(memory);
-  if (!original) {
-    console.warn(`[repost] ${memory.id} is gone, skipping`);
-    return false;
-  }
-  const imageUrls = extractImageUrls(original);
-  if (imageUrls.length === 0) {
-    console.warn(`[repost] ${memory.id} no longer has images, skipping`);
-    await markDeleted(memory.id);
-    return false;
-  }
+/**
+ * Expand a pick into its burst: same author, same channel, walking outwards
+ * while consecutive posts are within GROUP_GAP_MS of each other.
+ */
+async function buildGroup(pick: MemoryItem): Promise<MemoryItem[]> {
+  const neighbors = await findNeighbors(
+    pick.channel_id,
+    pick.author_id,
+    pick.posted_at - GROUP_SEARCH_MS,
+    pick.posted_at + GROUP_SEARCH_MS,
+  );
+  const idx = neighbors.findIndex((m) => m.id === pick.id);
+  if (idx === -1) return [pick];
 
-  const users = [...new Set([memory.author_id, ...memory.mentioned_user_ids])];
-  const roles = memory.mentioned_role_ids;
+  let lo = idx;
+  while (lo > 0 && neighbors[lo]!.posted_at - neighbors[lo - 1]!.posted_at <= GROUP_GAP_MS) lo--;
+  let hi = idx;
+  while (hi < neighbors.length - 1 && neighbors[hi + 1]!.posted_at - neighbors[hi]!.posted_at <= GROUP_GAP_MS) hi++;
+  return neighbors.slice(lo, hi + 1);
+}
+
+interface GroupImage {
+  url: string;
+  memory: MemoryItem;
+}
+
+/** Repost one memory together with its burst. Returns false if nothing could be posted. */
+export async function repostMemory(pick: MemoryItem): Promise<boolean> {
+  const group = await buildGroup(pick);
+
+  // Re-fetch every member for fresh URLs, dropping any that are gone.
+  const live: { memory: MemoryItem; original: APIMessage }[] = [];
+  for (const memory of group) {
+    const original = await fetchOriginal(memory);
+    if (!original) {
+      console.warn(`[repost] ${memory.id} is gone, dropping from group`);
+      continue;
+    }
+    if (extractImageUrls(original).length === 0) {
+      console.warn(`[repost] ${memory.id} no longer has images, dropping`);
+      await markDeleted(memory.id);
+      continue;
+    }
+    live.push({ memory, original });
+  }
+  if (live.length === 0) return false;
+
+  const images: GroupImage[] = [];
+  for (const { memory, original } of live) {
+    for (const url of extractImageUrls(original)) images.push({ url, memory });
+  }
+  const trimmed = images.slice(0, MAX_GROUP_IMAGES);
+
+  const first = live[0]!.memory;
+  const users = [...new Set(live.flatMap((l) => [l.memory.author_id, ...l.memory.mentioned_user_ids]))];
+  const roles = [...new Set(live.flatMap((l) => l.memory.mentioned_role_ids))];
   const pingLine = [
     ...users.map((id) => `<@${id}>`),
     ...roles.map((id) => `<@&${id}>`),
   ].join(" ");
 
-  const channelName = await fetchChannelName(memory.channel_id);
+  const texts = [...new Set(live.map((l) => l.original.content.trim()).filter(Boolean))];
+  const channelName = await fetchChannelName(first.channel_id);
   const embed: APIEmbed = {
-    title: titleFor(memory.posted_at),
-    url: jumpLink(memory),
-    description: original.content || memory.content || "*(no text)*",
-    timestamp: new Date(memory.posted_at).toISOString(),
-    footer: { text: `Posted by ${memory.author_name} in #${channelName}` },
+    title: titleFor(pick.posted_at, trimmed.length),
+    url: jumpLink(first),
+    description: texts.join("\n\n") || "*(no text)*",
+    timestamp: new Date(first.posted_at).toISOString(),
+    footer: {
+      text:
+        `Posted by ${first.author_name} in #${channelName}` +
+        (live.length > 1 ? ` · ${live.length} messages` : ""),
+    },
   };
 
-  const files: RawFile[] = [];
-  for (const [i, url] of imageUrls.slice(0, MAX_ATTACHMENTS).entries()) {
-    files.push({ name: fileName(url, i), data: await downloadFile(url) });
+  // Send in chunks of 10, downloading one chunk at a time to keep memory low.
+  let posted = 0;
+  for (let i = 0; i < trimmed.length; i += FILES_PER_MESSAGE) {
+    const chunk = trimmed.slice(i, i + FILES_PER_MESSAGE);
+    const files: RawFile[] = [];
+    for (const [j, img] of chunk.entries()) {
+      try {
+        files.push({ name: fileName(img.url, i + j), data: await downloadFile(img.url) });
+      } catch (err) {
+        console.warn(`[repost] could not download ${img.url}`, err);
+      }
+    }
+    const isFirst = i === 0;
+    try {
+      await sendMessage(
+        config.memoriesChannelId,
+        isFirst
+          ? {
+              content: `${pingLine}\n${jumpLink(first)}`,
+              embeds: [embed],
+              allowed_mentions: { users, roles },
+            }
+          : { allowed_mentions: { parse: [] } },
+        files,
+      );
+      posted += files.length;
+    } catch (err) {
+      console.error(`[repost] failed to send chunk ${i / FILES_PER_MESSAGE + 1}`, err);
+      if (isFirst) {
+        // Fall back to a link-only post so the memory still surfaces.
+        await sendMessage(config.memoriesChannelId, {
+          content: `${pingLine}\n${jumpLink(first)}`,
+          embeds: [embed],
+          allowed_mentions: { users, roles },
+        });
+      }
+    }
   }
 
-  await sendMessage(
-    config.memoriesChannelId,
-    {
-      content: `${pingLine}\n${jumpLink(memory)}`,
-      embeds: [embed],
-      allowed_mentions: { users, roles },
-    },
-    files,
+  for (const { memory } of live) await markReposted(memory.id);
+  console.log(
+    `[repost] reposted group of ${live.length} message(s), ${posted} image(s), from ${first.posted_date}`,
   );
-  await markReposted(memory.id);
-  console.log(`[repost] reposted ${memory.id} from ${memory.posted_date}`);
   return true;
 }
 
-/** Pick an eligible memory and repost it, retrying if the pick is gone. */
+/** Pick an eligible memory and repost it with its burst, retrying if the pick is gone. */
 export async function repostRandomMemory(): Promise<boolean> {
   const monthDay = toLocalDate(Date.now()).slice(5);
   for (let attempt = 0; attempt < MAX_PICK_ATTEMPTS; attempt++) {

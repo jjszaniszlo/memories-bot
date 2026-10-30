@@ -16,6 +16,7 @@ const doc = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 });
 
 export const MONTH_DAY_INDEX = "by-month-day";
+export const CHANNEL_TIME_INDEX = "by-channel-time";
 
 export interface MemoryItem {
   id: string; // message id
@@ -191,6 +192,38 @@ export async function pickMemory(todayMonthDay: string): Promise<MemoryItem | un
     ExclusiveStartKey = r.LastEvaluatedKey;
   } while (ExclusiveStartKey);
   return choose(all);
+}
+
+/** Live memories by the same author in the same channel within a time window, oldest first. */
+export async function findNeighbors(
+  channelId: string,
+  authorId: string,
+  fromMs: number,
+  toMs: number,
+): Promise<MemoryItem[]> {
+  const out: MemoryItem[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const r = await doc.send(
+      new QueryCommand({
+        TableName: table(),
+        IndexName: CHANNEL_TIME_INDEX,
+        KeyConditionExpression: "channel_id = :c AND posted_at BETWEEN :from AND :to",
+        FilterExpression: "author_id = :author AND deleted = :zero",
+        ExpressionAttributeValues: {
+          ":c": channelId,
+          ":from": fromMs,
+          ":to": toMs,
+          ":author": authorId,
+          ":zero": 0,
+        },
+        ExclusiveStartKey,
+      }),
+    );
+    out.push(...((r.Items ?? []) as MemoryItem[]));
+    ExclusiveStartKey = r.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return out.sort((a, b) => a.posted_at - b.posted_at);
 }
 
 export async function getCursor(channelId: string): Promise<CursorItem> {

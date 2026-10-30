@@ -27,6 +27,16 @@ resource "aws_dynamodb_table" "memories" {
     type = "S"
   }
 
+  attribute {
+    name = "channel_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "posted_at"
+    type = "N"
+  }
+
   # Sparse index: only memory items have month_day, cursors don't.
   global_secondary_index {
     name            = "by-month-day"
