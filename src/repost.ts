@@ -91,8 +91,13 @@ function displayName(m: APIMessage): string {
   return m.author.global_name ?? m.author.username;
 }
 
+/** Users named in the text itself; Discord also lists the replied-to author in `mentions`. */
+function explicitMentions(m: APIMessage): string[] {
+  return m.mentions.filter((u) => m.content.includes(`<@${u.id}>`) || m.content.includes(`<@!${u.id}>`)).map((u) => u.id);
+}
+
 function hasPing(m: APIMessage): boolean {
-  return m.mentions.length > 0 || m.mention_roles.length > 0 || m.mention_everyone;
+  return explicitMentions(m).length > 0 || m.mention_roles.length > 0 || m.mention_everyone;
 }
 
 /**
@@ -136,8 +141,10 @@ interface Cluster {
  * Grow the core burst into a conversation cluster using live channel history:
  *  - other media posts by the same author within the gap (even if not stored yet)
  *  - replies to anything already in the cluster, transitively
- *  - nearby pings: messages mentioning someone, within the gap of a cluster
- *    message, posted by a participant or pinging one
+ *  - nearby pings: messages mentioning someone, within the gap of a media
+ *    post in the cluster, posted by a participant or pinging one
+ * "Nearby" is always measured from the media posts, so chat can't drag the
+ * window along with it.
  */
 async function buildCluster(pick: MemoryItem): Promise<Cluster | null> {
   const core = await buildCore(pick);
@@ -177,7 +184,9 @@ async function buildCluster(pick: MemoryItem): Promise<Cluster | null> {
   for (const id of storedIds) add(live.get(id)!, "core");
 
   const nearCluster = (ms: number) =>
-    [...members.values()].some((c) => Math.abs(c.postedAt - ms) <= GROUP_GAP_MS);
+    [...members.values()].some(
+      (c) => (c.role === "core" || c.role === "burst") && Math.abs(c.postedAt - ms) <= GROUP_GAP_MS,
+    );
   const participants = () => new Set([...members.values()].map((c) => c.message.author.id));
 
   let grew = true;
@@ -197,7 +206,7 @@ async function buildCluster(pick: MemoryItem): Promise<Cluster | null> {
       } else if (
         hasPing(m) &&
         nearCluster(ms) &&
-        (people.has(m.author.id) || m.mentions.some((u) => people.has(u.id)))
+        (people.has(m.author.id) || explicitMentions(m).some((id) => people.has(id)))
       ) {
         role = "ping";
       }
