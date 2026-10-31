@@ -98,6 +98,7 @@ data "aws_iam_policy_document" "lambda" {
     sid = "DynamoDB"
     actions = [
       "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
       "dynamodb:DeleteItem",
