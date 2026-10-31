@@ -7,7 +7,7 @@ import { repostRandomMemory } from "./repost.js";
 const DEADLINE_BUFFER_MS = 30_000;
 
 type ScheduledJob =
-  | { job: "poll"; reset?: boolean; channelIds?: string[] }
+  | { job: "poll"; reset?: boolean; refresh?: boolean; channelIds?: string[] }
   | { job: "repost" };
 type Event = APIGatewayProxyEventV2 | ScheduledJob | CommandJob;
 
@@ -24,7 +24,7 @@ export async function handler(event: Event, context: Context) {
 
   switch (event.job) {
     case "poll":
-      await pollAll(deadline, { reset: event.reset, channelIds: event.channelIds });
+      await pollAll(deadline, { reset: event.reset, refresh: event.refresh, channelIds: event.channelIds });
       return;
     case "repost":
       await repostRandomMemory();

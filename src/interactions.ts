@@ -58,7 +58,7 @@ function reply(content: string): APIInteractionResponse {
   };
 }
 
-function optionValue<T extends string | number>(
+function optionValue<T extends string | number | boolean>(
   interaction: APIChatInputApplicationCommandInteraction,
   name: string,
 ): T | undefined {
@@ -137,9 +137,11 @@ export async function runCommandJob(job: CommandJob, deadline: number): Promise<
       }
       case "backfill": {
         const channelId = optionValue<string>(interaction, "channel");
+        const refresh = optionValue<boolean>(interaction, "refresh") ?? false;
         const results = await pollAll(deadline, {
           channelIds: channelId ? [channelId] : undefined,
           reset: true,
+          refresh,
         });
         if (!results) {
           await editInteractionReply(interaction.token, "A poll is already running. Try again in a few minutes.");
@@ -147,7 +149,7 @@ export async function runCommandJob(job: CommandJob, deadline: number): Promise<
         }
         const lines = results.map(
           (r) =>
-            `<#${r.channelId}>: scanned ${r.scanned}, stored ${r.stored}` +
+            `<#${r.channelId}>: scanned ${r.scanned}, stored ${r.stored}, already had ${r.skipped}` +
             (r.backfillDone ? "" : " (will continue on the next scheduled poll)"),
         );
         await editInteractionReply(interaction.token, `Backfill run finished.\n${lines.join("\n")}`);

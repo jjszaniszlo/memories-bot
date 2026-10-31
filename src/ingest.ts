@@ -1,6 +1,6 @@
 import type { APIMessage } from "discord-api-types/v10";
 import { config } from "./config.js";
-import { putMemory } from "./db.js";
+import { putMemory, type MemoryItem } from "./db.js";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp)(\?.*)?$/i;
 const VIDEO_EXT = /\.(mp4|mov|webm|m4v|mkv)(\?.*)?$/i;
@@ -54,15 +54,17 @@ export function toLocalDate(ms: number): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-/** Store the message if it has at least one picture or video. Returns true if stored. */
-export async function ingestMessage(message: APIMessage): Promise<boolean> {
-  if (message.author.bot) return false;
+export type NewMemory = Omit<MemoryItem, "kind" | "repost_count" | "deleted">;
+
+/** The row a message would be stored as, or null if it has no pictures or videos. */
+export function toMemory(message: APIMessage): NewMemory | null {
+  if (message.author.bot) return null;
   const media = extractMedia(message);
-  if (media.length === 0) return false;
+  if (media.length === 0) return null;
 
   const postedAt = Date.parse(message.timestamp);
   const postedDate = toLocalDate(postedAt);
-  await putMemory({
+  return {
     id: message.id,
     channel_id: message.channel_id,
     guild_id: config.guildId,
@@ -76,6 +78,13 @@ export async function ingestMessage(message: APIMessage): Promise<boolean> {
     video_urls: media.filter((m) => m.kind === "video").map((m) => m.url),
     mentioned_user_ids: message.mentions.map((u) => u.id),
     mentioned_role_ids: message.mention_roles,
-  });
+  };
+}
+
+/** Store the message if it has at least one picture or video. Returns true if stored. */
+export async function ingestMessage(message: APIMessage): Promise<boolean> {
+  const memory = toMemory(message);
+  if (!memory) return false;
+  await putMemory(memory);
   return true;
 }

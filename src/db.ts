@@ -1,5 +1,6 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
+  BatchGetCommand,
   DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
@@ -86,6 +87,27 @@ export async function putMemory(
       },
     }),
   );
+}
+
+/** Which of these message ids already have a row. Cheap reads, no writes. */
+export async function existingIds(ids: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    let keys: Record<string, unknown>[] = ids.slice(i, i + 100).map((id) => ({ id }));
+    let attempt = 0;
+    while (keys.length) {
+      const r = await doc.send(
+        new BatchGetCommand({
+          RequestItems: { [table()]: { Keys: keys, ProjectionExpression: "id" } },
+        }),
+      );
+      for (const item of r.Responses?.[table()] ?? []) found.add(item.id as string);
+      keys = (r.UnprocessedKeys?.[table()]?.Keys ?? []) as Record<string, unknown>[];
+      // Throttled keys come back unprocessed rather than as an error; back off and retry.
+      if (keys.length) await new Promise((res) => setTimeout(res, Math.min(5000, 200 * 2 ** attempt++)));
+    }
+  }
+  return found;
 }
 
 /** Pictures plus videos on a stored memory. */
