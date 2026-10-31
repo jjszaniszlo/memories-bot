@@ -85,3 +85,54 @@ export async function downloadFile(url: string): Promise<Buffer> {
   if (!res.ok) throw new Error(`Failed to download ${url}: ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
+
+const DISCORD_EPOCH_MS = 1_420_070_400_000;
+
+export function snowflakeToMs(id: string): number {
+  return Number(BigInt(id) >> 22n) + DISCORD_EPOCH_MS;
+}
+
+/** Smallest snowflake that could have been minted at `ms`. */
+export function snowflakeAt(ms: number): string {
+  return (BigInt(Math.max(ms, DISCORD_EPOCH_MS) - DISCORD_EPOCH_MS) << 22n).toString();
+}
+
+/**
+ * Every message in a channel posted within [fromMs, toMs], oldest first.
+ * `complete` is false if the page cap was hit before reaching toMs.
+ */
+export async function fetchMessagesBetween(
+  channelId: string,
+  fromMs: number,
+  toMs: number,
+  maxPages = 5,
+): Promise<{ messages: APIMessage[]; complete: boolean }> {
+  const messages: APIMessage[] = [];
+  let after = snowflakeAt(fromMs - 1);
+  for (let page = 0; page < maxPages; page++) {
+    const batch = await fetchMessages(channelId, { after });
+    for (const m of batch) {
+      if (snowflakeToMs(m.id) > toMs) return { messages, complete: true };
+      messages.push(m);
+    }
+    if (batch.length < 100) return { messages, complete: true };
+    after = batch[batch.length - 1]!.id;
+  }
+  return { messages, complete: false };
+}
+
+let uploadLimit: number | undefined;
+
+/** Per-file upload cap for this guild, which depends on its boost level. */
+export async function fetchUploadLimit(): Promise<number> {
+  if (uploadLimit) return uploadLimit;
+  let tier = 0;
+  try {
+    const guild = (await rest().get(Routes.guild(config.guildId))) as { premium_tier?: number };
+    tier = guild.premium_tier ?? 0;
+  } catch {
+    /* assume the unboosted limit */
+  }
+  uploadLimit = tier >= 3 ? 100_000_000 : tier === 2 ? 50_000_000 : 10_000_000;
+  return uploadLimit;
+}

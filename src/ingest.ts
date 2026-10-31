@@ -3,19 +3,43 @@ import { config } from "./config.js";
 import { putMemory } from "./db.js";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp)(\?.*)?$/i;
+const VIDEO_EXT = /\.(mp4|mov|webm|m4v|mkv)(\?.*)?$/i;
+const DISCORD_CDN = /^https:\/\/(cdn|media)\.discordapp\.(com|net)\//i;
 
-/** Image URLs on a message: image attachments plus image-type embeds. */
-export function extractImageUrls(message: APIMessage): string[] {
-  const urls: string[] = [];
+export type MediaKind = "image" | "video";
+
+export interface MediaRef {
+  url: string;
+  kind: MediaKind;
+  /** Bytes, when Discord tells us (attachments only). */
+  size?: number;
+  filename?: string;
+}
+
+/** Pictures and videos on a message: attachments plus image/video embeds. */
+export function extractMedia(message: APIMessage): MediaRef[] {
+  const out: MediaRef[] = [];
   for (const att of message.attachments) {
-    const isImage =
-      att.content_type?.startsWith("image/") || IMAGE_EXT.test(att.filename);
-    if (isImage) urls.push(att.url);
+    const type = att.content_type ?? "";
+    if (type.startsWith("image/") || IMAGE_EXT.test(att.filename)) {
+      out.push({ url: att.url, kind: "image", size: att.size, filename: att.filename });
+    } else if (type.startsWith("video/") || VIDEO_EXT.test(att.filename)) {
+      out.push({ url: att.url, kind: "video", size: att.size, filename: att.filename });
+    }
   }
   for (const embed of message.embeds ?? []) {
-    if (embed.type === "image" && embed.url) urls.push(embed.url);
+    if (embed.type === "image" && embed.url) {
+      out.push({ url: embed.url, kind: "image" });
+    } else if ((embed.type === "video" || embed.type === "gifv") && embed.video?.url) {
+      // Only videos hosted on Discord itself; a YouTube link is not a memory.
+      if (DISCORD_CDN.test(embed.video.url)) out.push({ url: embed.video.url, kind: "video" });
+    }
   }
-  return urls;
+  return out;
+}
+
+export function mediaUrls(message: APIMessage, kind: MediaKind): string[] {
+  return extractMedia(message).filter((m) => m.kind === kind).map((m) => m.url);
 }
 
 /** YYYY-MM-DD in the bot's timezone. */
@@ -30,11 +54,11 @@ export function toLocalDate(ms: number): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-/** Store the message if it has at least one image. Returns true if stored. */
+/** Store the message if it has at least one picture or video. Returns true if stored. */
 export async function ingestMessage(message: APIMessage): Promise<boolean> {
   if (message.author.bot) return false;
-  const imageUrls = extractImageUrls(message);
-  if (imageUrls.length === 0) return false;
+  const media = extractMedia(message);
+  if (media.length === 0) return false;
 
   const postedAt = Date.parse(message.timestamp);
   const postedDate = toLocalDate(postedAt);
@@ -48,7 +72,8 @@ export async function ingestMessage(message: APIMessage): Promise<boolean> {
     posted_at: postedAt,
     posted_date: postedDate,
     month_day: postedDate.slice(5),
-    image_urls: imageUrls,
+    image_urls: media.filter((m) => m.kind === "image").map((m) => m.url),
+    video_urls: media.filter((m) => m.kind === "video").map((m) => m.url),
     mentioned_user_ids: message.mentions.map((u) => u.id),
     mentioned_role_ids: message.mention_roles,
   });

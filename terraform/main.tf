@@ -135,7 +135,7 @@ resource "aws_lambda_function" "bot" {
   runtime       = "nodejs22.x"
   handler       = "handler.handler"
   architectures = ["arm64"]
-  memory_size   = 512
+  memory_size   = 1024
   timeout       = 900
 
   reserved_concurrent_executions = var.lambda_reserved_concurrency

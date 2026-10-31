@@ -1,4 +1,4 @@
-import { eligibleOnMonthDay, scanEligible, type MemoryItem, type PickFilters } from "./db.js";
+import { eligibleOnMonthDay, mediaCount, scanEligible, type MemoryItem, type PickFilters } from "./db.js";
 import { toLocalDate } from "./ingest.js";
 
 export type PickMode = "on-this-day" | "random" | "photo-dump" | "deep-cut" | "recent";
@@ -7,7 +7,7 @@ export type PickMode = "on-this-day" | "random" | "photo-dump" | "deep-cut" | "r
 export const PICK_MODES: { value: PickMode; name: string; description: string }[] = [
   { value: "on-this-day", name: "On this day", description: "Today's date in past years, widening to nearby days" },
   { value: "random", name: "Random", description: "Any eligible memory, all equally likely" },
-  { value: "photo-dump", name: "Photo dump", description: "Favours big batches of pictures" },
+  { value: "photo-dump", name: "Photo dump", description: "Favours big batches of pictures and videos" },
   { value: "deep-cut", name: "Deep cut", description: "Favours the oldest and least-seen memories" },
   { value: "recent", name: "Recent-ish", description: "Only the last 18 months" },
 ];
@@ -50,7 +50,7 @@ function dedupe(items: MemoryItem[]): MemoryItem[] {
   return [...seen.values()];
 }
 
-/** Total images in each candidate's burst, judged within the candidate set itself. */
+/** Total pictures and videos in each candidate's burst, judged within the candidate set itself. */
 function burstImageCounts(cands: MemoryItem[]): Map<string, number> {
   const sorted = [...cands].sort((a, b) =>
     a.channel_id.localeCompare(b.channel_id) ||
@@ -60,7 +60,7 @@ function burstImageCounts(cands: MemoryItem[]): Map<string, number> {
   const counts = new Map<string, number>();
   let group: MemoryItem[] = [];
   const flush = () => {
-    const total = group.reduce((n, m) => n + m.image_urls.length, 0);
+    const total = group.reduce((n, m) => n + mediaCount(m), 0);
     for (const m of group) counts.set(m.id, total);
     group = [];
   };
@@ -85,7 +85,7 @@ function weightsFor(mode: PickMode, cands: MemoryItem[]): number[] {
       return cands.map(() => 1);
     case "photo-dump": {
       const bursts = burstImageCounts(cands);
-      return cands.map((m) => (bursts.get(m.id) ?? m.image_urls.length) ** 2);
+      return cands.map((m) => (bursts.get(m.id) ?? mediaCount(m)) ** 2);
     }
     case "deep-cut":
       return cands.map((m) => {

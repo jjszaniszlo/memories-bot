@@ -13,7 +13,7 @@ import {
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
 import { config } from "./config.js";
 import { countMemoriesInChannel, getCursor, isLocked } from "./db.js";
-import { editInteractionReply } from "./discord.js";
+import { editInteractionReply, snowflakeToMs } from "./discord.js";
 import { POLL_LOCK, pollAll } from "./poll.js";
 import { toLocalDate } from "./ingest.js";
 import { repostById, repostRandomMemory } from "./repost.js";
@@ -193,10 +193,6 @@ export async function runCommandJob(job: CommandJob, deadline: number): Promise<
 }
 
 /** Discord snowflake -> unix ms. */
-function snowflakeToMs(id: string): number {
-  return Number((BigInt(id) >> 22n) + 1420070400000n);
-}
-
 async function statsReport(): Promise<string> {
   const lines: string[] = [];
   let total = 0;

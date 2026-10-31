@@ -1,6 +1,6 @@
 # memories-bot
 
-Serverless Discord bot that watches a few channels for images, stores each image message with its text, date and pings, and reposts one to a `#memories` channel on a schedule. Runs entirely on AWS Always Free services: Lambda, DynamoDB (provisioned), EventBridge Scheduler and CloudWatch Logs.
+Serverless Discord bot that watches a few channels for pictures and videos, stores each media message with its text, date and pings, and reposts one to a `#memories` channel on a schedule. Runs entirely on AWS Always Free services: Lambda, DynamoDB (provisioned), EventBridge Scheduler and CloudWatch Logs.
 
 ```
 EventBridge (every 15 min) ─► Lambda {job: poll}    ─► Discord REST ─► DynamoDB
@@ -8,7 +8,7 @@ EventBridge (daily)        ─► Lambda {job: repost}  ─► DynamoDB ─► D
 Discord slash command      ─► Lambda Function URL   ─► defer, async self-invoke, edit reply
 ```
 
-There is no gateway connection. New images are picked up on the next poll, not instantly.
+There is no gateway connection. New posts are picked up on the next poll, not instantly.
 
 ## 1. Discord setup
 
@@ -16,7 +16,7 @@ There is no gateway connection. New images are picked up on the next poll, not i
 2. Note the **Application ID** and **Public Key** (General Information) and the **Bot Token** (Bot tab).
 3. Invite the bot with scopes `bot` + `applications.commands` and permissions
    **View Channels, Read Message History, Send Messages, Embed Links, Attach Files, Mention Everyone** (last one lets it ping roles).
-4. On the **Bot** tab, under Privileged Gateway Intents, enable **Message Content Intent**. Without it Discord strips content, attachments and embeds from every message the bot fetches, including over the REST API, and the bot will find no images.
+4. On the **Bot** tab, under Privileged Gateway Intents, enable **Message Content Intent**. Without it Discord strips content, attachments and embeds from every message the bot fetches, including over the REST API, and the bot will find no pictures.
 5. Turn on Developer Mode in Discord and copy the IDs of the server, the channels to scan, and the memories channel.
 
 ## 2. Deploy
@@ -47,14 +47,20 @@ The poll job starts storing history automatically: on its first tick it anchors 
 | Command | What it does |
 | --- | --- |
 | `/backfill [channel]` | Re-walk a channel's history from the top. Only needed if you add a channel or want to re-scan. |
-| `/memory [message_id]` | Post a memory right now, either a specific one or a picked one. |
+| `/memory [mode] [from] [year] [message_id]` | Post a memory right now: a specific message, or one picked by mode and filters. |
 | `/memories-stats` | How many memories are stored. |
 
 ## How reposting works
 
-Each run of the repost schedule picks one memory, preferring a message posted on today's month/day in an earlier year. It skips memories younger than `min_age_days` and ones reposted within `repost_cooldown_days`. Least-reposted memories go first.
+Each run of the repost schedule picks one memory, preferring a message posted on today's month/day in an earlier year. It skips memories younger than `min_age_days` and ones reposted within `repost_cooldown_days`. Least-reposted memories go first. `/memory` offers other pick modes (random, photo dump, deep cut, recent) plus author and year filters.
 
-Discord attachment URLs expire, so the bot re-fetches the original message at repost time for fresh URLs, downloads the images, and uploads them to `#memories` with the original text, a ping to the author and anyone they mentioned, and a jump link to the original. If the original was deleted the memory is marked deleted and another is picked.
+The pick is then grown into a cluster from live channel history:
+
+- the author's other picture/video posts within 15 minutes of each other (the burst),
+- replies to anything already in the cluster, transitively, by anyone,
+- nearby messages that ping someone, when posted by a participant or pinging one.
+
+Discord attachment URLs expire, so the bot works from the freshly fetched messages: it downloads the pictures and videos and uploads them to `#memories` in batches of 10, with the original text (or a short transcript when others chimed in), a ping to everyone involved, and a jump link to the original. Videos over the server's upload limit are posted as links instead so Discord still shows a player. If the original was deleted the memory is marked deleted and another is picked.
 
 ## Cost
 

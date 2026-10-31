@@ -33,6 +33,7 @@ export interface MemoryItem {
   posted_date: string; // YYYY-MM-DD in bot timezone
   month_day: string; // MM-DD, GSI hash key
   image_urls: string[];
+  video_urls?: string[]; // absent on rows written before video support
   mentioned_user_ids: string[];
   mentioned_role_ids: string[];
   last_reposted_at?: number;
@@ -64,7 +65,7 @@ export async function putMemory(
         SET kind = :kind, channel_id = :channel_id, guild_id = :guild_id,
             author_id = :author_id, author_name = :author_name, content = :content,
             posted_at = :posted_at, posted_date = :posted_date, month_day = :month_day,
-            image_urls = :image_urls, mentioned_user_ids = :mentioned_user_ids,
+            image_urls = :image_urls, video_urls = :video_urls, mentioned_user_ids = :mentioned_user_ids,
             mentioned_role_ids = :mentioned_role_ids, deleted = :zero,
             repost_count = if_not_exists(repost_count, :zero)`,
       ExpressionAttributeValues: {
@@ -78,12 +79,18 @@ export async function putMemory(
         ":posted_date": m.posted_date,
         ":month_day": m.month_day,
         ":image_urls": m.image_urls,
+        ":video_urls": m.video_urls ?? [],
         ":mentioned_user_ids": m.mentioned_user_ids,
         ":mentioned_role_ids": m.mentioned_role_ids,
         ":zero": 0,
       },
     }),
   );
+}
+
+/** Pictures plus videos on a stored memory. */
+export function mediaCount(m: MemoryItem): number {
+  return m.image_urls.length + (m.video_urls?.length ?? 0);
 }
 
 export async function getMemory(id: string): Promise<MemoryItem | undefined> {

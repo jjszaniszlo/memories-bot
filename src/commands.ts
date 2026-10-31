@@ -12,7 +12,7 @@ const MANAGE_GUILD = String(PermissionFlagsBits.ManageGuild);
 export const commandDefinitions: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   {
     name: "backfill",
-    description: "Re-scan channel history and store every message with images",
+    description: "Re-scan channel history and store every message with pictures or videos",
     default_member_permissions: MANAGE_GUILD,
     options: [
       {
