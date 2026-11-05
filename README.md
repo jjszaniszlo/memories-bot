@@ -47,7 +47,7 @@ The poll job starts storing history automatically: on its first tick it anchors 
 | Command | What it does |
 | --- | --- |
 | `/backfill [channel] [refresh]` | Re-walk a channel's history and add anything missing. Existing rows are left alone unless `refresh` is true, which rewrites them (repost counts survive either way). |
-| `/memory [mode] [from] [year] [message_id]` | Post a memory right now: a specific message, or one picked by mode and filters. |
+| `/memory [mode] [from] [year] [message_id]` | Post a memory right now: a specific message, or one picked by mode and filters. Anyone can use it. |
 | `/memories-stats` | How many memories are stored. |
 
 ## How reposting works

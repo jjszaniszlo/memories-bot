@@ -31,7 +31,6 @@ export const commandDefinitions: RESTPostAPIChatInputApplicationCommandsJSONBody
   {
     name: "memory",
     description: "Post a memory to the memories channel right now",
-    default_member_permissions: MANAGE_GUILD,
     options: [
       {
         name: "mode",
