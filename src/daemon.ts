@@ -6,6 +6,7 @@
 import { WebSocketManager, WebSocketShardEvents } from "@discordjs/ws";
 import { Cron } from "croner";
 import {
+  ApplicationCommandType,
   GatewayDispatchEvents,
   GatewayIntentBits,
   InteractionResponseType,
@@ -75,7 +76,9 @@ async function onDispatch(payload: GatewayDispatchPayload): Promise<void> {
       return;
     case GatewayDispatchEvents.InteractionCreate: {
       const i = payload.d;
-      if (i.type === InteractionType.ApplicationCommand && "options" in i.data) {
+      // Slash commands only; `options` is absent on commands that take none, so test the type.
+      if (i.type === InteractionType.ApplicationCommand && i.data.type === ApplicationCommandType.ChatInput) {
+        log(`[command] /${i.data.name} from ${i.member?.user.username ?? i.user?.username ?? "?"}`);
         await onInteraction(i as APIChatInputApplicationCommandInteraction);
       }
       return;
