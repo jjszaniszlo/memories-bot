@@ -68,7 +68,7 @@ resource "aws_dynamodb_table" "memories" {
 
 data "archive_file" "lambda" {
   type        = "zip"
-  source_dir  = "${path.module}/../dist"
+  source_dir  = "${path.module}/../dist/lambda"
   output_path = "${path.module}/.build/lambda.zip"
 }
 

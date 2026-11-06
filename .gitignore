@@ -18,3 +18,7 @@ terraform/crash.*.log
 terraform/*.tfvars
 terraform/*.tfvars.json
 !terraform/terraform.tfvars.example
+
+# Local SQLite data and exports
+data/
+*.jsonl

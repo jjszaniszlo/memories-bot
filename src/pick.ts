@@ -1,4 +1,4 @@
-import { eligibleOnMonthDay, mediaCount, scanEligible, type MemoryItem, type PickFilters } from "./db.js";
+import { eligibleOnMonthDay, getStore, mediaCount, scanEligible, type MemoryItem, type PickFilters } from "./db.js";
 import { toLocalDate } from "./ingest.js";
 
 export type PickMode = "on-this-day" | "random" | "photo-dump" | "deep-cut" | "recent";
@@ -134,6 +134,9 @@ export async function pickMemory(req: PickRequest): Promise<MemoryItem | undefin
       }
     }
   }
+
+  // A local database reads every row in milliseconds, so weight the whole eligible set.
+  if ((await getStore()).cheapScan) return weightedChoice(req.mode, await scanEligible(filters));
 
   let cands: MemoryItem[] = [];
   for (let round = 0; round < SAMPLE_ROUNDS && cands.length < MIN_CANDIDATES; round++) {

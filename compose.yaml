@@ -1,0 +1,19 @@
+services:
+  memai:
+    build: .
+    image: memai:local
+    container_name: memai
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      STORE: sqlite
+      SQLITE_PATH: /data/memai.db
+      TZ: ${BOT_TIMEZONE:-America/Los_Angeles}
+    volumes:
+      # SQLite database and import/export files. Back this directory up.
+      - ./data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,16 +1,23 @@
 {
   "name": "memories-bot",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/handler.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/handler.mjs --external:@aws-sdk/* --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --minify-syntax --sourcemap",
+    "build": "npm run build:lambda && npm run build:daemon",
+    "build:lambda": "esbuild src/handler.ts --bundle --platform=node --target=node22 --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --minify-syntax --sourcemap --external:@aws-sdk/* --outfile=dist/lambda/handler.mjs",
+    "build:daemon": "esbuild src/daemon.ts src/tools.ts --bundle --platform=node --target=node22 --format=esm --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --minify-syntax --sourcemap --outdir=dist/daemon --out-extension:.js=.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "register": "node --env-file=.env --import tsx scripts/register-commands.ts",
-    "deploy": "npm run build && terraform -chdir=terraform apply"
+    "start": "node --env-file=.env --no-warnings=ExperimentalWarning dist/daemon/daemon.mjs",
+    "dev": "node --env-file=.env --no-warnings=ExperimentalWarning --import tsx src/daemon.ts",
+    "tools": "node --env-file=.env --no-warnings=ExperimentalWarning --import tsx src/tools.ts",
+    "deploy": "npm run build:lambda && terraform -chdir=terraform apply"
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.3",
+    "@discordjs/ws": "^2.0.4",
+    "croner": "^11.0.0",
     "discord-api-types": "^0.38.57"
   },
   "devDependencies": {

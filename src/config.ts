@@ -22,7 +22,13 @@ export const config = {
     return required("SCAN_CHANNEL_IDS").split(",").map((s) => s.trim()).filter(Boolean);
   },
   get memoriesChannelId() { return required("MEMORIES_CHANNEL_ID"); },
+  /** Which database backs the bot: "dynamo" (Lambda) or "sqlite" (long-running process). */
+  get store() { return process.env.STORE?.trim() || "dynamo"; },
   get tableName() { return required("TABLE_NAME"); },
+  get sqlitePath() { return process.env.SQLITE_PATH?.trim() || "./data/memai.db"; },
+  /** Daemon only: how often to poll, and when to post (5-field cron in the bot timezone). */
+  get pollIntervalMinutes() { return optionalInt("POLL_INTERVAL_MINUTES", 15); },
+  get repostCron() { return process.env.REPOST_CRON?.trim() || "0 14 * * *"; },
   get repostCooldownDays() { return optionalInt("REPOST_COOLDOWN_DAYS", 90); },
   get minAgeDays() { return optionalInt("MIN_AGE_DAYS", 30); },
   // Lambda reserves TZ, so the bot's timezone has its own variable.

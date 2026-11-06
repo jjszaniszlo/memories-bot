@@ -1,6 +1,6 @@
 import type { APIMessage } from "discord-api-types/v10";
 import { config } from "./config.js";
-import { putMemory, type MemoryItem } from "./db.js";
+import { putMemory, type NewMemory } from "./db.js";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp)(\?.*)?$/i;
 const VIDEO_EXT = /\.(mp4|mov|webm|m4v|mkv)(\?.*)?$/i;
@@ -53,8 +53,6 @@ export function toLocalDate(ms: number): string {
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
-
-export type NewMemory = Omit<MemoryItem, "kind" | "repost_count" | "deleted">;
 
 /** The row a message would be stored as, or null if it has no pictures or videos. */
 export function toMemory(message: APIMessage): NewMemory | null {
