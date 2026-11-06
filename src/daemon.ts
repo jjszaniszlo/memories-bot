@@ -120,7 +120,11 @@ async function main(): Promise<void> {
   const repostJob = new Cron(config.repostCron, { timezone: config.timezone }, () => void runRepost());
   const next = repostJob.nextRun();
   const local = next
-    ? new Intl.DateTimeFormat("en-US", { timeZone: config.timezone, dateStyle: "medium", timeStyle: "short", timeZoneName: "short" }).format(next)
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone: config.timezone,
+        year: "numeric", month: "short", day: "numeric",
+        hour: "numeric", minute: "2-digit", timeZoneName: "short",
+      }).format(next)
     : "never";
   log(`[daemon] polling every ${config.pollIntervalMinutes} min; repost cron "${config.repostCron}" in ${config.timezone}; next: ${local} (${next?.toISOString() ?? "n/a"})`);
 
