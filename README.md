@@ -76,7 +76,8 @@ On the machine with AWS credentials (`aws login` first):
 
 ```sh
 STORE=dynamo TABLE_NAME=memories-bot AWS_REGION=us-east-2 npm run tools -- export memai-export.jsonl
-scp memai-export.jsonl pi@<pi-host>:memories-bot/data/
+# scp needs an scp binary on the Pi; piping through ssh works with any server, Dropbear included
+gzip -c memai-export.jsonl | ssh <pi-host> 'mkdir -p memories-bot/data && gunzip -c > memories-bot/data/memai-export.jsonl'
 ```
 
 On the Pi, with the container stopped so nothing writes concurrently:
