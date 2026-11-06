@@ -114,7 +114,7 @@ docker compose run --rm memai node dist/daemon/tools.mjs export /data/backup.jso
 cp data/memai.db /somewhere/safe/          # or just copy the file while stopped
 ```
 
-Config lives in `.env`; change it and `docker compose up -d` to apply. `REPOST_CRON` is a standard 5-field cron evaluated in `BOT_TIMEZONE`.
+Config lives in `.env`; change it and `docker compose up -d` to apply. `REPOST_CRON` is evaluated in `BOT_TIMEZONE` and accepts either a standard 5-field cron or the EventBridge form from `terraform.tfvars` (`cron(0 14 * * ? *)`); both mean 2 pm daily. The startup log prints the next run in local time, so check it once after changing either value.
 
 ## 3. First run
 

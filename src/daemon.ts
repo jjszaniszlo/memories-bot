@@ -118,7 +118,11 @@ async function main(): Promise<void> {
   void runPoll("startup");
   const pollTimer = setInterval(() => void runPoll("interval"), config.pollIntervalMinutes * 60_000);
   const repostJob = new Cron(config.repostCron, { timezone: config.timezone }, () => void runRepost());
-  log(`[daemon] polling every ${config.pollIntervalMinutes} min; next repost ${repostJob.nextRun()?.toISOString() ?? "never"} (${config.repostCron} ${config.timezone})`);
+  const next = repostJob.nextRun();
+  const local = next
+    ? new Intl.DateTimeFormat("en-US", { timeZone: config.timezone, dateStyle: "medium", timeStyle: "short", timeZoneName: "short" }).format(next)
+    : "never";
+  log(`[daemon] polling every ${config.pollIntervalMinutes} min; repost cron "${config.repostCron}" in ${config.timezone}; next: ${local} (${next?.toISOString() ?? "n/a"})`);
 
   const shutdown = async (signal: string) => {
     log(`[daemon] ${signal}, shutting down`);
